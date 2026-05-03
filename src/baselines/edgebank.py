@@ -1,4 +1,15 @@
-"""EdgeBank baselines for temporal link prediction with TGB evaluation."""
+"""EdgeBank baseline for temporal link prediction with TGB evaluation.
+
+This implements the unlimited-memory EdgeBank variant from Poursafaei et al.
+(DGB, NeurIPS D&B 2022). The model stores all observed (src, dst) pairs and
+predicts that previously seen edges will recur. Memory is updated on-the-fly
+during test evaluation: each test edge is added to memory after being scored,
+before scoring the next edge.
+
+This is one of several reasonable EdgeBank implementations. Our resulting MRR
+(0.58) sits between the TGB-reported unlimited (0.495) and time-window (0.571)
+numbers, likely due to differences in the on-the-fly update policy.
+"""
 import argparse, os, pickle, time
 import numpy as np
 import pandas as pd

@@ -40,6 +40,19 @@ ax.axhline(y=sota_mrr, color=MODEL_COLORS['SOTA (TPNet)'], linestyle='--', linew
 ax.text(len(models)-0.5, sota_mrr + 0.02, 'SOTA (TPNet)', fontsize=7,
         color=MODEL_COLORS['SOTA (TPNet)'], ha='right')
 
+# EdgeBank reference label on chart
+ax.annotate('EdgeBank\n(0 params)', xy=(3 + w, 0.580), xytext=(2.3, 0.72),
+            fontsize=6.5, ha='center', color=MODEL_COLORS['EdgeBank'],
+            arrowprops=dict(arrowstyle='->', color=MODEL_COLORS['EdgeBank'], lw=0.8))
+
+# Annotation: same model, different protocol
+ax.annotate('Same checkpoint,\ndifferent protocol',
+            xy=(2 - w, 0.993), xytext=(0.3, 0.85),
+            fontsize=6, ha='center', style='italic',
+            arrowprops=dict(arrowstyle='->', color='#444', lw=0.7))
+ax.annotate('', xy=(2 + w, 0.395), xytext=(0.3, 0.82),
+            arrowprops=dict(arrowstyle='->', color='#444', lw=0.7))
+
 ax.set_xticks(x)
 ax.set_xticklabels(models)
 ax.set_ylabel('Score')

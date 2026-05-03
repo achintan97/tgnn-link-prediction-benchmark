@@ -236,105 +236,32 @@ else:
 
 # === TGB Official MRR Evaluation ===
 print('Running TGB official MRR evaluation...')
-ns_path = 'DATA/{}/tgbl-wiki_test_ns_v2.pkl'.format(args.data)
-if os.path.exists(ns_path):
-    with open(ns_path, 'rb') as f:
-        test_ns = pickle.load(f)
+from src.eval.evaluator import evaluate_tgb_official
 
-    # Reset model state and replay train+val to rebuild memory
-    if sampler is not None:
-        sampler.reset()
-    if mailbox is not None:
-        mailbox.reset()
-        model.memory_updater.last_updated_nid = None
-        val_losses = []
-        eval('train')
-        eval('val')
+# Reset model state and replay train+val to rebuild memory
+if sampler is not None:
+    sampler.reset()
+if mailbox is not None:
+    mailbox.reset()
+    model.memory_updater.last_updated_nid = None
+    val_losses = []
+    eval('train')
+    eval('val')
 
-    model.eval()
-    test_df = df[val_edge_end:]
-    mrr_list = []
-    n_neg = 999
-    has_memory = mailbox is not None
-    NEG_BATCH = 100  # for no-memory models, score negatives in batches
+tgb_result = evaluate_tgb_official(
+    model, mailbox, sampler, sample_param, memory_param, gnn_param,
+    node_feats, edge_feats, df, val_edge_end, neg_link_sampler, combine_first,
+    data_dir='DATA/{}'.format(args.data))
+tgb_mrr = tgb_result['mrr']
+print('\tTGB test MRR:{:.4f}  (evaluated {} edges)'.format(tgb_mrr, tgb_result['n_eval']))
 
-    with torch.no_grad():
-        for idx in range(len(test_df)):
-            row = test_df.iloc[idx]
-            src_i = int(row['src']); dst_i = int(row['dst']); ts_val = np.float32(row['time'])
-            key = (src_i, dst_i, int(row['time']))
-            has_tgb = key in test_ns
-            if has_tgb:
-                neg_nodes = test_ns[key].astype(np.int32)
-            else:
-                neg_nodes = neg_link_sampler.sample(n_neg).astype(np.int32)
-
-            if has_memory:
-                # TGN/JODIE: all 1001 nodes in one forward pass, memory provides distinction
-                root_nodes = np.concatenate([[src_i], [dst_i], neg_nodes]).astype(np.int32)
-                ts_batch = np.repeat(ts_val, n_neg + 2).astype(np.float32)
-                if sampler is not None:
-                    sampler.sample(root_nodes, ts_batch)
-                    ret = sampler.get_ret()
-                try:
-                    if gnn_param['arch'] != 'identity':
-                        mfgs = to_dgl_blocks(ret, sample_param['history'])
-                    else:
-                        mfgs = node_to_dgl_blocks(root_nodes, ts_batch)
-                    mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
-                    mailbox.prep_input_mails(mfgs[0])
-                    pred_pos, pred_neg = model(mfgs, neg_samples=n_neg)
-                except (RuntimeError, dgl._ffi.base.DGLError):
-                    continue
-                rank = (pred_neg.squeeze() > pred_pos.squeeze()).sum().item() + 1
-
-                # Update memory
-                eid = test_df.iloc[idx:idx+1]['Unnamed: 0'].values
-                mem_edge_feats = edge_feats[eid] if edge_feats is not None else None
-                block = None
-                if memory_param.get('deliver_to') == 'neighbors':
-                    block = to_dgl_blocks(ret, sample_param['history'], reverse=True)[0][0]
-                mailbox.update_mailbox(model.memory_updater.last_updated_nid, model.memory_updater.last_updated_memory, root_nodes, ts_batch, mem_edge_feats, block, neg_samples=n_neg)
-                mailbox.update_memory(model.memory_updater.last_updated_nid, model.memory_updater.last_updated_memory, root_nodes, model.memory_updater.last_updated_ts, neg_samples=n_neg)
-            else:
-                # TGAT (no memory): score pos and neg pairs separately to avoid
-                # identical embeddings when all nodes share one block.
-                # Score positive (src, dst)
-                rn = np.array([src_i, dst_i, dst_i], dtype=np.int32)
-                ts3 = np.repeat(ts_val, 3).astype(np.float32)
-                sampler.sample(rn, ts3); ret = sampler.get_ret()
-                mfgs = to_dgl_blocks(ret, sample_param['history'])
-                mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
-                pp, _ = model(mfgs, neg_samples=1)
-                pos_score = pp.item()
-                # Score negatives in batches
-                neg_scores = []
-                for b in range(0, n_neg, NEG_BATCH):
-                    chunk = neg_nodes[b:b+NEG_BATCH]; bs = len(chunk)
-                    rn = np.concatenate([np.repeat(src_i, bs), chunk, chunk]).astype(np.int32)
-                    ts_b = np.repeat(ts_val, bs * 3).astype(np.float32)
-                    sampler.sample(rn, ts_b); ret = sampler.get_ret()
-                    mfgs = to_dgl_blocks(ret, sample_param['history'])
-                    mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
-                    pp_b, _ = model(mfgs, neg_samples=1)
-                    neg_scores.extend(pp_b.squeeze().cpu().tolist() if bs > 1 else [pp_b.item()])
-                rank = sum(1 for s in neg_scores if s > pos_score) + 1
-
-            if has_tgb:
-                mrr_list.append(1.0 / rank)
-
-    tgb_mrr = float(np.mean(mrr_list)) if mrr_list else 0.0
-    print('\tTGB test MRR:{:.4f}  (evaluated {} edges)'.format(tgb_mrr, len(mrr_list)))
-
-    results = {
-        'exp_name': args.exp_name, 'seed': args.seed, 'best_epoch': best_e,
-        'test_ap': float(ap), 'test_auc': float(auc) if args.eval_neg_samples == 1 else None,
-        'tgb_test_mrr': tgb_mrr, 'config': args.config,
-    }
-    os.makedirs('experiments/results', exist_ok=True)
-    res_path = 'experiments/results/{}_{}_seed{}.json'.format(args.exp_name or args.data, args.config.split('/')[-1].replace('.yml',''), args.seed)
-    with open(res_path, 'w') as f:
-        json.dump(results, f, indent=2)
-    print('Results saved to', res_path)
-else:
-    print('No TGB neg samples found at', ns_path)
+results = {
+    'exp_name': args.exp_name, 'seed': args.seed,
+    'test_ap': float(ap), 'test_auc': float(auc) if args.eval_neg_samples == 1 else None,
+    'tgb_test_mrr': tgb_mrr, 'config': args.config,
+}
+os.makedirs('experiments/results', exist_ok=True)
+res_path = 'experiments/results/{}_{}_seed{}.json'.format(args.exp_name or args.data, args.config.split('/')[-1].replace('.yml',''), args.seed)
+with open(res_path, 'w') as f:
+    json.dump(results, f, indent=2)
+print('Results saved to', res_path)

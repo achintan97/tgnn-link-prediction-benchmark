@@ -1,9 +1,8 @@
 {
   "exp_name": "tgn_no_mem",
   "seed": 1,
-  "best_epoch": 34,
-  "test_ap": 0.6810530424118042,
-  "test_auc": 0.7648321986198425,
-  "tgb_test_mrr": 0.7907228401103354,
+  "test_ap": 0.6790158152580261,
+  "test_auc": 0.7636057138442993,
+  "tgb_test_mrr": 0.2920595176902229,
   "config": "configs/ablations/tgn_no_memory.yml"
 }
