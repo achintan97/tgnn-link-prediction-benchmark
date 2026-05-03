@@ -1,0 +1,9 @@
+{
+  "exp_name": "tgn_uniform",
+  "seed": 1,
+  "best_epoch": 99,
+  "test_ap": 0.9914498329162598,
+  "test_auc": 0.9925749897956848,
+  "tgb_test_mrr": 0.3316637000347538,
+  "config": "configs/ablations/tgn_uniform.yml"
+}

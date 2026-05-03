@@ -1,0 +1,7 @@
+model,stratum_type,stratum,n,mrr
+EdgeBank,recurring,Novel,9301,0.6098939794007642
+EdgeBank,recurring,Recurring,14320,0.7759958673503077
+EdgeBank,degree,Q1,6085,0.8530990223143057
+EdgeBank,degree,Q2,5741,0.7062309366763451
+EdgeBank,degree,Q3,5906,0.7635364151826554
+EdgeBank,degree,Q4,5889,0.5144947014013758
