@@ -12,6 +12,7 @@ parser.add_argument('--rand_node_features', type=int, default=0, help='use rando
 parser.add_argument('--eval_neg_samples', type=int, default=1, help='how many negative samples to use at inference. Note: this will change the metric of test set to AP+AUC to AP+MRR!')
 parser.add_argument('--seed', type=int, default=1, help='random seed')
 parser.add_argument('--exp_name', type=str, default='', help='experiment name for checkpoint')
+parser.add_argument('--eval_only', action='store_true', help='skip training, load checkpoint and run eval only')
 args=parser.parse_args()
 
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
@@ -42,28 +43,6 @@ sample_param, memory_param, gnn_param, train_param = parse_config(args.config)
 train_edge_end = df[df['ext_roll'].gt(0)].index[0]
 val_edge_end = df[df['ext_roll'].gt(1)].index[0]
 
-def get_inductive_links(df, train_edge_end, val_edge_end):
-    train_df = df[:train_edge_end]
-    test_df = df[val_edge_end:]
-    
-    total_node_set = set(np.unique(np.hstack([df['src'].values, df['dst'].values])))
-    train_node_set = set(np.unique(np.hstack([train_df['src'].values, train_df['dst'].values])))
-    new_node_set = total_node_set - train_node_set
-    
-    del total_node_set, train_node_set
-
-    inductive_inds = []
-    for index, (_, row) in enumerate(test_df.iterrows()):
-        if row.src in new_node_set or row.dst in new_node_set:
-            inductive_inds.append(val_edge_end+index)
-    
-    print('Inductive links', len(inductive_inds), len(test_df))
-    return [i for i in range(val_edge_end)] + inductive_inds
-
-if args.use_inductive:
-    inductive_inds = get_inductive_links(df, train_edge_end, val_edge_end)
-    df = df.iloc[inductive_inds]
-    
 gnn_dim_node = 0 if node_feats is None else node_feats.shape[1]
 gnn_dim_edge = 0 if edge_feats is None else edge_feats.shape[1]
 combine_first = False
@@ -88,13 +67,7 @@ if not ('no_sample' in sample_param and sample_param['no_sample']):
                               sample_param['strategy']=='recent', sample_param['prop_time'],
                               sample_param['history'], float(sample_param['duration']))
 
-if args.use_inductive:
-    test_df = df[val_edge_end:]
-    inductive_nodes = set(test_df.src.values).union(test_df.src.values)
-    print("inductive nodes", len(inductive_nodes))
-    neg_link_sampler = NegLinkInductiveSampler(inductive_nodes)
-else:
-    neg_link_sampler = NegLinkSampler(g['indptr'].shape[0] - 1)
+neg_link_sampler = NegLinkSampler(g['indptr'].shape[0] - 1)
 
 def eval(mode='val'):
     neg_samples = 1
@@ -154,93 +127,96 @@ def eval(mode='val'):
         auc_mrr = float(torch.tensor(aucs_mrrs).mean())
     return ap, auc_mrr
 
-if not os.path.isdir('experiments/checkpoints'):
-    os.makedirs('experiments/checkpoints', exist_ok=True)
+# === Checkpoint path ===
+os.makedirs('experiments/checkpoints', exist_ok=True)
 if args.exp_name:
     path_saver = 'experiments/checkpoints/{}_seed{}.pkl'.format(args.exp_name, args.seed)
 elif args.model_name == '':
     path_saver = 'experiments/checkpoints/{}_{}.pkl'.format(args.data, time.time())
 else:
     path_saver = 'experiments/checkpoints/{}.pkl'.format(args.model_name)
+
 best_ap = 0
 best_e = 0
-val_losses = list()
-group_indexes = list()
-group_indexes.append(np.array(df[:train_edge_end].index // train_param['batch_size']))
-if 'reorder' in train_param:
-    # random chunk shceduling
-    reorder = train_param['reorder']
-    group_idx = list()
-    for i in range(reorder):
-        group_idx += list(range(0 - i, reorder - i))
-    group_idx = np.repeat(np.array(group_idx), train_param['batch_size'] // reorder)
-    group_idx = np.tile(group_idx, train_edge_end // train_param['batch_size'] + 1)[:train_edge_end]
-    group_indexes.append(group_indexes[0] + group_idx)
-    base_idx = group_indexes[0]
-    for i in range(1, train_param['reorder']):
-        additional_idx = np.zeros(train_param['batch_size'] // train_param['reorder'] * i) - 1
-        group_indexes.append(np.concatenate([additional_idx, base_idx])[:base_idx.shape[0]])
-for e in range(train_param['epoch']):
-    print('Epoch {:d}:'.format(e))
-    time_sample = 0
-    time_prep = 0
-    time_tot = 0
-    total_loss = 0
-    # training
-    model.train()
-    if sampler is not None:
-        sampler.reset()
-    if mailbox is not None:
-        mailbox.reset()
-        model.memory_updater.last_updated_nid = None
-    for _, rows in df[:train_edge_end].groupby(group_indexes[random.randint(0, len(group_indexes) - 1)]):
-        t_tot_s = time.time()
-        root_nodes = np.concatenate([rows.src.values, rows.dst.values, neg_link_sampler.sample(len(rows))]).astype(np.int32)
-        ts = np.concatenate([rows.time.values, rows.time.values, rows.time.values]).astype(np.float32)
-        if sampler is not None:
-            if 'no_neg' in sample_param and sample_param['no_neg']:
-                pos_root_end = root_nodes.shape[0] * 2 // 3
-                sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end])
-            else:
-                sampler.sample(root_nodes, ts)
-            ret = sampler.get_ret()
-            time_sample += ret[0].sample_time()
-        t_prep_s = time.time()
-        if gnn_param['arch'] != 'identity':
-            mfgs = to_dgl_blocks(ret, sample_param['history'])
-        else:
-            mfgs = node_to_dgl_blocks(root_nodes, ts)
-        mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
-        if mailbox is not None:
-            mailbox.prep_input_mails(mfgs[0])
-        time_prep += time.time() - t_prep_s
-        optimizer.zero_grad()
-        pred_pos, pred_neg = model(mfgs)
-        loss = creterion(pred_pos, torch.ones_like(pred_pos))
-        loss += creterion(pred_neg, torch.zeros_like(pred_neg))
-        total_loss += float(loss) * train_param['batch_size']
-        loss.backward()
-        optimizer.step()
-        t_prep_s = time.time()
-        if mailbox is not None:
-            eid = rows['Unnamed: 0'].values
-            mem_edge_feats = edge_feats[eid] if edge_feats is not None else None
-            block = None
-            if memory_param['deliver_to'] == 'neighbors':
-                block = to_dgl_blocks(ret, sample_param['history'], reverse=True)[0][0]
-            mailbox.update_mailbox(model.memory_updater.last_updated_nid, model.memory_updater.last_updated_memory, root_nodes, ts, mem_edge_feats, block)
-            mailbox.update_memory(model.memory_updater.last_updated_nid, model.memory_updater.last_updated_memory, root_nodes, model.memory_updater.last_updated_ts)
-        time_prep += time.time() - t_prep_s
-        time_tot += time.time() - t_tot_s
-    ap, auc = eval('val')
-    if e > 2 and ap > best_ap:
-        best_e = e
-        best_ap = ap
-        torch.save(model.state_dict(), path_saver)
-    print('\ttrain loss:{:.4f}  val ap:{:4f}  val auc:{:4f}'.format(total_loss, ap, auc))
-    print('\ttotal time:{:.2f}s sample time:{:.2f}s prep time:{:.2f}s'.format(time_tot, time_sample, time_prep))
 
-print('Loading model at epoch {}...'.format(best_e))
+# === Training ===
+if not args.eval_only:
+    val_losses = list()
+    group_indexes = list()
+    group_indexes.append(np.array(df[:train_edge_end].index // train_param['batch_size']))
+    if 'reorder' in train_param:
+        reorder = train_param['reorder']
+        group_idx = list()
+        for i in range(reorder):
+            group_idx += list(range(0 - i, reorder - i))
+        group_idx = np.repeat(np.array(group_idx), train_param['batch_size'] // reorder)
+        group_idx = np.tile(group_idx, train_edge_end // train_param['batch_size'] + 1)[:train_edge_end]
+        group_indexes.append(group_indexes[0] + group_idx)
+        base_idx = group_indexes[0]
+        for i in range(1, train_param['reorder']):
+            additional_idx = np.zeros(train_param['batch_size'] // train_param['reorder'] * i) - 1
+            group_indexes.append(np.concatenate([additional_idx, base_idx])[:base_idx.shape[0]])
+    for e in range(train_param['epoch']):
+        print('Epoch {:d}:'.format(e))
+        time_sample = 0
+        time_prep = 0
+        time_tot = 0
+        total_loss = 0
+        model.train()
+        if sampler is not None:
+            sampler.reset()
+        if mailbox is not None:
+            mailbox.reset()
+            model.memory_updater.last_updated_nid = None
+        for _, rows in df[:train_edge_end].groupby(group_indexes[random.randint(0, len(group_indexes) - 1)]):
+            t_tot_s = time.time()
+            root_nodes = np.concatenate([rows.src.values, rows.dst.values, neg_link_sampler.sample(len(rows))]).astype(np.int32)
+            ts = np.concatenate([rows.time.values, rows.time.values, rows.time.values]).astype(np.float32)
+            if sampler is not None:
+                if 'no_neg' in sample_param and sample_param['no_neg']:
+                    pos_root_end = root_nodes.shape[0] * 2 // 3
+                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end])
+                else:
+                    sampler.sample(root_nodes, ts)
+                ret = sampler.get_ret()
+                time_sample += ret[0].sample_time()
+            t_prep_s = time.time()
+            if gnn_param['arch'] != 'identity':
+                mfgs = to_dgl_blocks(ret, sample_param['history'])
+            else:
+                mfgs = node_to_dgl_blocks(root_nodes, ts)
+            mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
+            if mailbox is not None:
+                mailbox.prep_input_mails(mfgs[0])
+            time_prep += time.time() - t_prep_s
+            optimizer.zero_grad()
+            pred_pos, pred_neg = model(mfgs)
+            loss = creterion(pred_pos, torch.ones_like(pred_pos))
+            loss += creterion(pred_neg, torch.zeros_like(pred_neg))
+            total_loss += float(loss) * train_param['batch_size']
+            loss.backward()
+            optimizer.step()
+            t_prep_s = time.time()
+            if mailbox is not None:
+                eid = rows['Unnamed: 0'].values
+                mem_edge_feats = edge_feats[eid] if edge_feats is not None else None
+                block = None
+                if memory_param['deliver_to'] == 'neighbors':
+                    block = to_dgl_blocks(ret, sample_param['history'], reverse=True)[0][0]
+                mailbox.update_mailbox(model.memory_updater.last_updated_nid, model.memory_updater.last_updated_memory, root_nodes, ts, mem_edge_feats, block)
+                mailbox.update_memory(model.memory_updater.last_updated_nid, model.memory_updater.last_updated_memory, root_nodes, model.memory_updater.last_updated_ts)
+            time_prep += time.time() - t_prep_s
+            time_tot += time.time() - t_tot_s
+        ap, auc = eval('val')
+        if e > 2 and ap > best_ap:
+            best_e = e
+            best_ap = ap
+            torch.save(model.state_dict(), path_saver)
+        print('\ttrain loss:{:.4f}  val ap:{:4f}  val auc:{:4f}'.format(total_loss, ap, auc))
+        print('\ttotal time:{:.2f}s sample time:{:.2f}s prep time:{:.2f}s'.format(time_tot, time_sample, time_prep))
+
+# === Load best checkpoint and run legacy eval ===
+print('Loading model from {}...'.format(path_saver))
 model.load_state_dict(torch.load(path_saver))
 model.eval()
 if sampler is not None:
@@ -248,8 +224,10 @@ if sampler is not None:
 if mailbox is not None:
     mailbox.reset()
     model.memory_updater.last_updated_nid = None
+    val_losses = []  # needed by eval() in val mode
     eval('train')
     eval('val')
+val_losses = []
 ap, auc = eval('test')
 if args.eval_neg_samples > 1:
     print('\ttest AP:{:4f}  test MRR:{:4f}'.format(ap, auc))
@@ -263,83 +241,91 @@ if os.path.exists(ns_path):
     with open(ns_path, 'rb') as f:
         test_ns = pickle.load(f)
 
-    # Reset model state for TGB eval
+    # Reset model state and replay train+val to rebuild memory
     if sampler is not None:
         sampler.reset()
     if mailbox is not None:
         mailbox.reset()
         model.memory_updater.last_updated_nid = None
+        val_losses = []
         eval('train')
         eval('val')
 
-    # TGB eval: for each test edge, score true dst against 999 TGB negatives
-    # Process in small batches — each edge needs 999 neg samples through the model
     model.eval()
     test_df = df[val_edge_end:]
     mrr_list = []
-    tgb_batch_size = max(1, train_param['batch_size'] // 100)  # smaller batches for 999 negs
+    n_neg = 999
+    has_memory = mailbox is not None
+    NEG_BATCH = 100  # for no-memory models, score negatives in batches
 
     with torch.no_grad():
-        for _, rows in test_df.groupby(test_df.index // tgb_batch_size):
-            # Build TGB negative arrays for this batch
-            batch_neg_nodes = []
-            valid_mask = []
-            for _, row in rows.iterrows():
-                key = (int(row['src']), int(row['dst']), int(row['time']))
-                if key in test_ns:
-                    batch_neg_nodes.append(test_ns[key])
-                    valid_mask.append(True)
-                else:
-                    batch_neg_nodes.append(np.zeros(999, dtype=np.int64))
-                    valid_mask.append(False)
-
-            neg_nodes_flat = np.concatenate(batch_neg_nodes).astype(np.int32)
-            n_neg = 999
-
-            # root_nodes: [src_batch, dst_batch, neg_batch_flat]
-            root_nodes = np.concatenate([
-                rows.src.values, rows.dst.values, neg_nodes_flat
-            ]).astype(np.int32)
-            ts_batch = np.tile(rows.time.values, n_neg + 2).astype(np.float32)
-
-            if sampler is not None:
-                if 'no_neg' in sample_param and sample_param['no_neg']:
-                    pos_root_end = len(rows) * 2
-                    sampler.sample(root_nodes[:pos_root_end], ts_batch[:pos_root_end])
-                else:
-                    sampler.sample(root_nodes, ts_batch)
-                ret = sampler.get_ret()
-            if gnn_param['arch'] != 'identity':
-                mfgs = to_dgl_blocks(ret, sample_param['history'])
+        for idx in range(len(test_df)):
+            row = test_df.iloc[idx]
+            src_i = int(row['src']); dst_i = int(row['dst']); ts_val = np.float32(row['time'])
+            key = (src_i, dst_i, int(row['time']))
+            has_tgb = key in test_ns
+            if has_tgb:
+                neg_nodes = test_ns[key].astype(np.int32)
             else:
-                mfgs = node_to_dgl_blocks(root_nodes, ts_batch)
-            mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
-            if mailbox is not None:
-                mailbox.prep_input_mails(mfgs[0])
+                neg_nodes = neg_link_sampler.sample(n_neg).astype(np.int32)
 
-            pred_pos, pred_neg = model(mfgs, neg_samples=n_neg)
+            if has_memory:
+                # TGN/JODIE: all 1001 nodes in one forward pass, memory provides distinction
+                root_nodes = np.concatenate([[src_i], [dst_i], neg_nodes]).astype(np.int32)
+                ts_batch = np.repeat(ts_val, n_neg + 2).astype(np.float32)
+                if sampler is not None:
+                    sampler.sample(root_nodes, ts_batch)
+                    ret = sampler.get_ret()
+                try:
+                    if gnn_param['arch'] != 'identity':
+                        mfgs = to_dgl_blocks(ret, sample_param['history'])
+                    else:
+                        mfgs = node_to_dgl_blocks(root_nodes, ts_batch)
+                    mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
+                    mailbox.prep_input_mails(mfgs[0])
+                    pred_pos, pred_neg = model(mfgs, neg_samples=n_neg)
+                except (RuntimeError, dgl._ffi.base.DGLError):
+                    continue
+                rank = (pred_neg.squeeze() > pred_pos.squeeze()).sum().item() + 1
 
-            # Compute MRR: for each edge, rank pos among its 999 negs
-            pred_neg_reshaped = pred_neg.squeeze().reshape(n_neg, -1)  # (999, batch)
-            ranks = (pred_neg_reshaped > pred_pos.squeeze().unsqueeze(0)).sum(dim=0) + 1
-            for i, v in enumerate(valid_mask):
-                if v:
-                    mrr_list.append(1.0 / ranks[i].item())
-
-            # Update memory
-            if mailbox is not None:
-                eid = rows['Unnamed: 0'].values
+                # Update memory
+                eid = test_df.iloc[idx:idx+1]['Unnamed: 0'].values
                 mem_edge_feats = edge_feats[eid] if edge_feats is not None else None
                 block = None
-                if memory_param['deliver_to'] == 'neighbors':
+                if memory_param.get('deliver_to') == 'neighbors':
                     block = to_dgl_blocks(ret, sample_param['history'], reverse=True)[0][0]
                 mailbox.update_mailbox(model.memory_updater.last_updated_nid, model.memory_updater.last_updated_memory, root_nodes, ts_batch, mem_edge_feats, block, neg_samples=n_neg)
                 mailbox.update_memory(model.memory_updater.last_updated_nid, model.memory_updater.last_updated_memory, root_nodes, model.memory_updater.last_updated_ts, neg_samples=n_neg)
+            else:
+                # TGAT (no memory): score pos and neg pairs separately to avoid
+                # identical embeddings when all nodes share one block.
+                # Score positive (src, dst)
+                rn = np.array([src_i, dst_i, dst_i], dtype=np.int32)
+                ts3 = np.repeat(ts_val, 3).astype(np.float32)
+                sampler.sample(rn, ts3); ret = sampler.get_ret()
+                mfgs = to_dgl_blocks(ret, sample_param['history'])
+                mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
+                pp, _ = model(mfgs, neg_samples=1)
+                pos_score = pp.item()
+                # Score negatives in batches
+                neg_scores = []
+                for b in range(0, n_neg, NEG_BATCH):
+                    chunk = neg_nodes[b:b+NEG_BATCH]; bs = len(chunk)
+                    rn = np.concatenate([np.repeat(src_i, bs), chunk, chunk]).astype(np.int32)
+                    ts_b = np.repeat(ts_val, bs * 3).astype(np.float32)
+                    sampler.sample(rn, ts_b); ret = sampler.get_ret()
+                    mfgs = to_dgl_blocks(ret, sample_param['history'])
+                    mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
+                    pp_b, _ = model(mfgs, neg_samples=1)
+                    neg_scores.extend(pp_b.squeeze().cpu().tolist() if bs > 1 else [pp_b.item()])
+                rank = sum(1 for s in neg_scores if s > pos_score) + 1
+
+            if has_tgb:
+                mrr_list.append(1.0 / rank)
 
     tgb_mrr = float(np.mean(mrr_list)) if mrr_list else 0.0
     print('\tTGB test MRR:{:.4f}  (evaluated {} edges)'.format(tgb_mrr, len(mrr_list)))
 
-    # Save all results
     results = {
         'exp_name': args.exp_name, 'seed': args.seed, 'best_epoch': best_e,
         'test_ap': float(ap), 'test_auc': float(auc) if args.eval_neg_samples == 1 else None,

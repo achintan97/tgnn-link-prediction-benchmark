@@ -48,6 +48,31 @@ bash scripts/prepare_data.sh
 bash scripts/smoke_test.sh
 ```
 
+## Results
+
+| Model | Legacy AP | Legacy AUC | TGB MRR | Seeds |
+|-------|-----------|------------|---------|-------|
+| EdgeBank(unlimited) | — | — | 0.580 | 1 |
+| **TGN** | 0.993 ± 0.000 | 0.994 ± 0.000 | **0.395 ± 0.074** | 3 |
+| JODIE | 0.988 ± 0.000 | 0.990 ± 0.000 | 0.327 ± 0.015 | 3 |
+| TGAT | 0.683 ± 0.001 | 0.766 ± 0.000 | 0.167 ± 0.003 | 2 |
+
+**Key finding:** Under TGB's standardized 999-negative evaluation, all three TGNNs
+score well below the EdgeBank heuristic baseline (MRR 0.58) and far below SOTA
+(TPNet MRR 0.83). Legacy 1-negative AP/AUC metrics (>0.99 for TGN) dramatically
+overstate model quality. The gap between legacy and TGB metrics is the central
+finding of this benchmark.
+
+### Reproducing the main results
+
+```bash
+# From checkpoints (no retraining, ~30 min):
+PYTHONPATH=. bash scripts/reproduce_main_table.sh 0
+
+# From scratch (~2 hours on a single A10G GPU):
+PYTHONPATH=. bash scripts/run_experiments.sh 0
+```
+
 ## Data Preparation
 
 The `tgbl-wiki-v2` dataset (157K edges, 8K nodes, 172-dim edge features) is downloaded from S3 and converted to TGL's CSR format:

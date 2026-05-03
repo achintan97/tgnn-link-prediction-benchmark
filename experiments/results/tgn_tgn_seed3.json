@@ -1,9 +1,9 @@
 {
   "exp_name": "tgn",
   "seed": 3,
-  "best_epoch": 93,
-  "test_ap": 0.9933341145515442,
-  "test_auc": 0.9942744970321655,
-  "tgb_test_mrr": 0.9781142203971043,
+  "best_epoch": 0,
+  "test_ap": 0.9937888979911804,
+  "test_auc": 0.9943704605102539,
+  "tgb_test_mrr": 0.45762107015505094,
   "config": "configs/models/tgn.yml"
 }

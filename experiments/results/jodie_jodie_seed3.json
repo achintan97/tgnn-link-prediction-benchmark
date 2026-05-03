@@ -1,9 +1,9 @@
 {
   "exp_name": "jodie",
   "seed": 3,
-  "best_epoch": 90,
-  "test_ap": 0.9882618188858032,
-  "test_auc": 0.9906555414199829,
-  "tgb_test_mrr": 0.9649320519876381,
+  "best_epoch": 0,
+  "test_ap": 0.9883067011833191,
+  "test_auc": 0.9901159405708313,
+  "tgb_test_mrr": 0.3396314538204311,
   "config": "configs/models/jodie.yml"
 }
