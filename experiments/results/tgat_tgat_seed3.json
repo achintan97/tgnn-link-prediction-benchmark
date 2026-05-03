@@ -1,0 +1,9 @@
+{
+  "exp_name": "tgat",
+  "seed": 3,
+  "best_epoch": 85,
+  "test_ap": 0.6832135915756226,
+  "test_auc": 0.7665742039680481,
+  "tgb_test_mrr": 1.0,
+  "config": "configs/models/tgat.yml"
+}

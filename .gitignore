@@ -1,0 +1,28 @@
+# Data
+DATA/
+
+# Experiment outputs
+experiments/checkpoints/
+experiments/logs/
+experiments/figures/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Build artifacts
+build/
+dist/
+*.so
+*.o
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp

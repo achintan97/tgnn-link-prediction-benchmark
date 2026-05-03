@@ -1,0 +1,11 @@
+torch>=2.0
+dgl
+numpy<2
+pandas
+scikit-learn
+pyyaml
+tqdm
+matplotlib
+seaborn
+torch-scatter
+pybind11

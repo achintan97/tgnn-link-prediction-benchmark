@@ -1,0 +1,9 @@
+{
+  "exp_name": "smoke_tgn",
+  "seed": 1,
+  "best_epoch": 99,
+  "test_ap": 0.9931092262268066,
+  "test_auc": 0.9939000010490417,
+  "tgb_test_mrr": 0.9763396977265993,
+  "config": "configs/models/tgn.yml"
+}
