@@ -1,0 +1,8 @@
+{
+  "exp_name": "jodie_review",
+  "seed": 1,
+  "test_ap": 0.9489954710006714,
+  "test_auc": 0.956712007522583,
+  "tgb_test_mrr": 0.34126361714682074,
+  "config": "configs/models/jodie_review.yml"
+}

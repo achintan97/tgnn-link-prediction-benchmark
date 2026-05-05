@@ -1,0 +1,8 @@
+{
+  "exp_name": "tgn_review",
+  "seed": 2,
+  "test_ap": 0.9522526264190674,
+  "test_auc": 0.955410897731781,
+  "tgb_test_mrr": 0.2448742321662093,
+  "config": "configs/models/tgn_review.yml"
+}

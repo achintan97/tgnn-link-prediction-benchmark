@@ -19,7 +19,9 @@ def evaluate_tgb_official(model, mailbox, sampler, sample_param, memory_param,
 
     Returns: dict with 'mrr' (float) and 'n_eval' (int).
     """
-    ns_path = os.path.join(data_dir, 'tgbl-wiki_test_ns_v2.pkl')
+    # Infer neg sample filename from data_dir
+    dataset_name = os.path.basename(data_dir).replace('-v2', '')
+    ns_path = os.path.join(data_dir, f'{dataset_name}_test_ns_v2.pkl')
     if not os.path.exists(ns_path):
         print('No TGB neg samples found at', ns_path)
         return {'mrr': 0.0, 'n_eval': 0}
@@ -30,7 +32,9 @@ def evaluate_tgb_official(model, mailbox, sampler, sample_param, memory_param,
     model.eval()
     test_df = df[val_edge_end:]
     mrr_list = []
-    n_neg = 999
+    # Detect number of negatives from first entry
+    first_key = next(iter(test_ns))
+    n_neg = len(test_ns[first_key])
     has_memory = mailbox is not None
     NEG_BATCH = 100
 

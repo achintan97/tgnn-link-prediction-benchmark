@@ -1,0 +1,8 @@
+dataset,model,legacy_ap,tgb_mrr,n_seeds
+tgbl-wiki-v2,EdgeBank,-,0.580,1
+tgbl-review-v2,EdgeBank,-,0.025,1
+tgbl-review-v2,jodie,0.942 ± 0.007,0.336 ± 0.005,2
+tgbl-review-v2,tgn,0.903 ± 0.069,0.226 ± 0.138,3
+tgbl-wiki-v2,jodie,0.988 ± 0.000,0.327 ± 0.015,3
+tgbl-wiki-v2,tgat,0.683 ± 0.001,0.167 ± 0.003,2
+tgbl-wiki-v2,tgn,0.993 ± 0.000,0.395 ± 0.074,3

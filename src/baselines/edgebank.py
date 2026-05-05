@@ -22,10 +22,14 @@ def run_edgebank(data_dir, variant='unlimited'):
     val_end = df[df['ext_roll'].gt(1)].index[0]
 
     # Load TGB neg samples — keys are (src, dst, timestamp) tuples
-    with open(os.path.join(data_dir, 'tgbl-wiki_test_ns_v2.pkl'), 'rb') as f:
+    ns_prefix = os.path.basename(data_dir).replace('-v2', '')
+    with open(os.path.join(data_dir, f'{ns_prefix}_test_ns_v2.pkl'), 'rb') as f:
         test_ns = pickle.load(f)
-    with open(os.path.join(data_dir, 'tgbl-wiki_val_ns_v2.pkl'), 'rb') as f:
-        val_ns = pickle.load(f)
+    val_ns_path = os.path.join(data_dir, f'{ns_prefix}_val_ns_v2.pkl')
+    val_ns = None
+    if os.path.exists(val_ns_path):
+        with open(val_ns_path, 'rb') as f:
+            val_ns = pickle.load(f)
 
     # Build memory from training edges
     memory = defaultdict(set)  # src -> set of dst
