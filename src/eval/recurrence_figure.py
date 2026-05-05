@@ -16,8 +16,8 @@ points = [
     (60.6, 0.327, 'JODIE', 'wiki'),
     (60.6, 0.580, 'EdgeBank', 'wiki'),
     # review (0.0% recurrence)
-    (0.0, 0.315, 'TGN', 'review'),
-    (0.0, 0.336, 'JODIE', 'review'),
+    (0.0, 0.363, 'TGN', 'review'),
+    (0.0, 0.345, 'JODIE', 'review'),
     (0.0, 0.025, 'EdgeBank', 'review'),
 ]
 

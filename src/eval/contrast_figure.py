@@ -12,8 +12,8 @@ os.makedirs('report/figures', exist_ok=True)
 models = ['TGN', 'JODIE', 'EdgeBank']
 wiki_mrr =   [0.395, 0.327, 0.580]
 wiki_std =   [0.074, 0.015, 0.0]
-review_mrr = [0.315, 0.336, 0.025]  # seeds 1-2 mean (excluding collapsed seed 3)
-review_std = [0.070, 0.005, 0.0]
+review_mrr = [0.363, 0.345, 0.025]  # 3-seed means
+review_std = [0.089, 0.013, 0.0]
 
 fig, ax = plt.subplots(figsize=(3.5, 2.8))
 x = np.arange(len(models))
