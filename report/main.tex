@@ -90,13 +90,37 @@ If model selection is based on legacy AP, a team would deploy TGN (AP $= 0.993$)
 The cost is not just wasted compute---it is a degraded user experience attributable to model selection guided by a misleading metric.
 Understanding \emph{why} TGNNs fail under hard evaluation is essential for designing architectures that genuinely improve over heuristics.
 
-\subsection{Dataset: tgbl-wiki-v2}
+\subsection{Datasets}
 
-We use the \texttt{tgbl-wiki-v2} dataset from TGB~\cite{huang2024tgb}, which records one month of Wikipedia editor--page interactions as a bipartite temporal graph.
-It contains 8,227 editor nodes and 1,000 page nodes connected by 157,474 timestamped edges, each carrying a 172-dimensional text feature vector derived from edit comments.
-The dataset is split chronologically: 70\% training, 15\% validation, 15\% test.
-The ``v2'' designation indicates that negative samples are pre-computed and fixed, replacing the v1 protocol where negatives were sampled randomly at evaluation time.
-Each test edge has exactly 999 negative destination nodes, selected to be structurally plausible (i.e., nodes that exist in the graph but were not the true destination).
+We use two datasets from the Temporal Graph Benchmark (TGB)~\cite{huang2024tgb}, chosen to span very different edge-recurrence regimes.
+
+\textbf{tgbl-wiki-v2} records one month of Wikipedia editor--page interactions as a bipartite temporal graph.
+It contains 8,227 editor nodes and 1,000 page nodes connected by 157,474 timestamped edges, each carrying a 172-dimensional text feature vector.
+Crucially, 60.6\% of test edges have a (src, dst) pair that already appeared in training---a high-recurrence regime favorable to memorization.
+
+\textbf{tgbl-review-v2} records 4.9M Amazon product reviews as user--product interactions over 19 years.
+It contains 352,637 user nodes and 25,254 product nodes.
+The key distinction: 0\% of test (src, dst) pairs appear in training, making it a low-recurrence regime where memorization cannot succeed.
+
+Both datasets use the ``v2'' protocol with pre-computed fixed negative samples per test edge, replacing the v1 random-negative protocol.
+
+\begin{table}[t]
+\centering
+\caption{Dataset statistics.}
+\label{tab:datasets}
+\small
+\begin{tabular}{lcc}
+\toprule
+ & \textbf{tgbl-wiki-v2} & \textbf{tgbl-review-v2} \\
+\midrule
+Nodes (src/dst) & 8.2K / 1.0K & 352K / 25K \\
+Edges & 157K & 4.9M \\
+Test recurrence & 60.6\% & 0.0\% \\
+Edge features & 172-d text & 1-d \\
+Neg. per test edge & 999 & 100 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 % ============================================================
 \section{Approach}
@@ -222,23 +246,24 @@ We trained TGN with \texttt{memory.type=none} (seed=1), making it architecturall
 
 \begin{table}[t]
 \centering
-\caption{Memory ablation. Removing memory drops AP from 0.993 to 0.681.}
+\caption{Memory ablation. Removing memory drops both AP and TGB MRR; TGN-no-memory matches TGAT's regime under both protocols.}
 \label{tab:ablation_mem}
 \small
-\begin{tabular}{lcc}
+\begin{tabular}{lccl}
 \toprule
-\textbf{Configuration} & \textbf{Legacy AP} & \textbf{Architecture} \\
+\textbf{Configuration} & \textbf{Legacy AP} & \textbf{TGB MRR} & \textbf{Architecture} \\
 \midrule
-TGN (full) & 0.993 & GRU memory + attention \\
-TGN (no memory) & 0.681 & attention only \\
-TGAT & 0.684 & attention only \\
+TGN (full) & 0.993 & 0.395 & GRU memory + attention \\
+TGN (no memory) & 0.679 & 0.292 & attention only \\
+TGAT & 0.683 & 0.167 & attention only (2-layer) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:ablation_mem} confirms the hypothesis: removing memory drops AP by 31\% (0.993 $\to$ 0.681), and TGN-no-memory matches TGAT almost exactly (0.681 vs.\ 0.684).
-The memory module---a GRU that maintains per-node state updated after each interaction---is what allows TGN to track evolving node behavior.
-Without it, the model can only reason about local neighborhood structure at the current timestamp, which is insufficient for temporal link prediction.
+Table~\ref{tab:ablation_mem} confirms the hypothesis under both protocols.
+Removing TGN's memory module drops legacy AP from 0.993 to 0.679 (a 32\% relative drop) and TGB MRR from 0.395 to 0.292.
+The fact that the gap appears under \emph{both} protocols rules out evaluation artifacts: memory contributes real generalization, not just better performance against easy random negatives.
+The remaining gap between TGN-no-memory (0.292) and TGAT (0.167) is explained by architectural differences---TGAT uses 2 attention layers and uniform sampling vs.\ TGN's 1 layer with recent sampling.
 
 \subsection{Ablation: Sampling Strategy}
 

@@ -50,18 +50,19 @@ bash scripts/smoke_test.sh
 
 ## Results
 
-| Model | Legacy AP | Legacy AUC | TGB MRR | Seeds |
-|-------|-----------|------------|---------|-------|
-| EdgeBank(unlimited) | — | — | 0.580 | 1 |
-| **TGN** | 0.993 ± 0.000 | 0.994 ± 0.000 | **0.395 ± 0.074** | 3 |
-| JODIE | 0.988 ± 0.000 | 0.990 ± 0.000 | 0.327 ± 0.015 | 3 |
-| TGAT | 0.683 ± 0.001 | 0.766 ± 0.000 | 0.167 ± 0.003 | 2 |
+| Dataset | Model | Legacy AP | TGB MRR | Seeds |
+|---------|-------|-----------|---------|-------|
+| tgbl-wiki-v2 | EdgeBank | — | 0.580 | 1 |
+| tgbl-wiki-v2 | **TGN** | 0.993 ± 0.000 | **0.395 ± 0.074** | 3 |
+| tgbl-wiki-v2 | JODIE | 0.988 ± 0.000 | 0.327 ± 0.015 | 3 |
+| tgbl-wiki-v2 | TGAT | 0.683 ± 0.001 | 0.167 ± 0.003 | 2 |
+| tgbl-review-v2 | EdgeBank | — | 0.025 | 1 |
+| tgbl-review-v2 | **TGN** | 0.952 ± 0.001 | **0.363 ± 0.089** | 3 |
+| tgbl-review-v2 | JODIE | 0.943 ± 0.006 | 0.345 ± 0.013 | 3 |
 
-**Key finding:** Under TGB's standardized 999-negative evaluation, all three TGNNs
-score well below the EdgeBank heuristic baseline (MRR 0.58) and far below SOTA
-(TPNet MRR 0.83). Legacy 1-negative AP/AUC metrics (>0.99 for TGN) dramatically
-overstate model quality. The gap between legacy and TGB metrics is the central
-finding of this benchmark.
+**Key finding 1 — Evaluation protocol matters.** Under TGB's 999-negative protocol, all three TGNNs score below the parameter-free EdgeBank heuristic on tgbl-wiki-v2. Legacy 1-negative AP/AUC (>0.99 for TGN) dramatically overstate model quality.
+
+**Key finding 2 — Edge-recurrence rate explains which class wins.** On tgbl-wiki-v2 (60% test edges recur from training), EdgeBank dominates by memorization. On tgbl-review-v2 (0% recurrence), EdgeBank collapses to near-random while TGNNs reach 0.34–0.36 MRR. This contrast suggests recurrence rate predicts, before any training, whether a learned temporal model is likely to outperform memorization.
 
 ### Reproducing the main results
 
@@ -71,6 +72,21 @@ PYTHONPATH=. bash scripts/reproduce_main_table.sh 0
 
 # From scratch (~2 hours on a single A10G GPU):
 PYTHONPATH=. bash scripts/run_experiments.sh 0
+```
+
+### Reproducing the cross-dataset experiment
+
+```bash
+# Prepare review data
+python src/data/tgb_to_tgl.py --dataset tgbl-review-v2
+
+# Train TGN and JODIE on review (3 seeds each, ~13 GPU-hours total)
+for s in 1 2 3; do
+  python scripts/train.py --data tgbl-review-v2 \
+    --config configs/models/tgn_review.yml --seed $s --exp_name tgn_review --gpu 0
+  python scripts/train.py --data tgbl-review-v2 \
+    --config configs/models/jodie_review.yml --seed $s --exp_name jodie_review --gpu 0
+done
 ```
 
 ## Data Preparation
